@@ -55,7 +55,7 @@ io.on('connection', (socket) => {
     sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString() });
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
-    console.log(`[circuit] ${sessionId}: ${componentCount} components, ${wireCount} wires`);
+    console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
 
     const result = diagnoseCircuit(payload.circuit);
     console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} — ${result.message}`);

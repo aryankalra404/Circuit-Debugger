@@ -23,6 +23,9 @@ With the server running in one terminal:
 npm run test:client
 ```
 
+For the GND-path regression test (using the same `PinPoint.pinId` shape sent
+by `QuestCircuitBridge.cs`), run `npm run test:rules`.
+
 Expected output includes:
 
 ```text
@@ -48,4 +51,4 @@ Server → all clients in that session:
 
 Rules are one file each in `rules/` and return a fault message or `null`. `rules/index.js` runs them in order, so this is the only file you need to replace later when inserting Reka/RAG diagnosis behind the same Socket.IO events.
 
-Current checks cover reversed LED polarity, a missing LED-to-GND path, a missing power/resistor path, and basic resistor values when a future `value` field is supplied. Session state stays in memory and is intentionally reset whenever the server restarts.
+Current checks cover reversed LED polarity, a missing LED-to-GND path, a missing power path, and basic resistor values when a future `value` field is supplied. A resistor is optional for the current direct-LED AR demo. Session state stays in memory and is intentionally reset whenever the server restarts.

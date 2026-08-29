@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test:client": "node test/client.js"
+    "test:client": "node test/client.js",
+    "test:rules": "node test/rules.js"
   },
   "dependencies": {
     "socket.io": "^4.8.1",

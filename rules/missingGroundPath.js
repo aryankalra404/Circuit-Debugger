@@ -1,4 +1,42 @@
-const { buildGraph, isGround, powerNodes, reachable, terminalNode } = require('./circuitGraph');
+const { buildGraph, powerNodes, reachable, terminalNode } = require('./circuitGraph');
+
+function normalizePinId(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : null;
+}
+
+// This graph intentionally uses only physical jumper wires. Component terminal
+// fields are identifiers (for example "LED_CATHODE"), not proof that a wire is
+// currently plugged in.
+function buildWireGraph(wires) {
+  const graph = new Map();
+  for (const wire of wires) {
+    const from = normalizePinId(wire?.from);
+    const to = normalizePinId(wire?.to);
+    if (!from || !to) continue;
+    if (!graph.has(from)) graph.set(from, new Set());
+    if (!graph.has(to)) graph.set(to, new Set());
+    graph.get(from).add(to);
+    graph.get(to).add(from);
+  }
+  return graph;
+}
+
+function reachesGround(graph, start) {
+  if (!start || !graph.has(start)) return false;
+  const seen = new Set([start]);
+  const queue = [start];
+  for (let index = 0; index < queue.length; index += 1) {
+    const node = queue[index];
+    if (node === 'gnd') return true;
+    for (const neighbor of graph.get(node) || []) {
+      if (!seen.has(neighbor)) {
+        seen.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+  return false;
+}
 
 module.exports = function missingGroundPath(circuit) {
   const components = Array.isArray(circuit.components) ? circuit.components : [];
@@ -6,32 +44,25 @@ module.exports = function missingGroundPath(circuit) {
   if (!leds.length) return 'No LED was found in the circuit.';
 
   const graph = buildGraph(circuit);
-  const fromGround = reachable(graph, [...graph.keys()].filter(isGround));
   const fromPower = reachable(graph, powerNodes(graph));
-  const resistors = components.filter((component) => component.type === 'resistor');
   const wires = Array.isArray(circuit.wires) ? circuit.wires : [];
+  const wireGraph = buildWireGraph(wires);
 
   for (const led of leds) {
     const anode = terminalNode(led, 'anode');
-    const cathode = terminalNode(led, 'cathode');
-    // Terminal fields are useful labels, but do not on their own prove a
-    // physical wire is present. Require the cathode port to be wired too.
-    const cathodeIsWired = wires.some((wire) => wire && (wire.from === cathode || wire.to === cathode));
-    if (!cathodeIsWired || !fromGround.has(cathode)) {
+    const cathodePinId = normalizePinId(led.cathode);
+
+    // Unity serializes a connection as { from: pinA.pinId, to: pinB.pinId }.
+    // Therefore the traversal must start at led.cathode, not at the server's
+    // internal label "led-1-cathode".
+    if (!reachesGround(wireGraph, cathodePinId)) {
       return `LED ${led.id} has no continuous path from its cathode to GND. Check the ground wire.`;
     }
     if (!fromPower.has(anode)) {
       return `LED ${led.id} has no power-side path to its anode. Check the resistor and power-pin wiring.`;
     }
-    const resistorInPath = resistors.some((resistor) => {
-      const a = terminalNode(resistor, 'a');
-      const b = terminalNode(resistor, 'b');
-      // In the full graph a resistor conducts, so both terminals must belong
-      // to the LED's powered network. This deliberately stays permissive for
-      // live AR placement, where labels and explicit wire endpoints coexist.
-      return fromPower.has(a) && fromPower.has(b);
-    });
-    if (!resistorInPath) return `LED ${led.id} is missing a resistor in its power path.`;
+    // A resistor is optional for this AR demo. When a future value field is
+    // sent, resistorSanity.js validates it without changing this topology rule.
   }
   return null;
 };
