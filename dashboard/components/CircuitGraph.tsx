@@ -57,7 +57,46 @@ export function CircuitGraph({ circuit, faultComponents, confidence }: Props) {
   const graphWidth = Math.max(540, ...(nodes.map((node) => node.x + node.width / 2 + 30)));
   const graphHeight = Math.max(300, ...(nodes.map((node) => node.y + node.height / 2 + 30)));
 
-  if (!circuit) return <div className="flex h-[360px] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">Waiting for the first circuit:update from Quest…</div>;
+  if (!circuit) return (
+    <div className="overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-2">
+      <svg className="min-w-full" viewBox="0 0 540 300" role="img" aria-label="Waiting for circuit data">
+        <defs>
+          <pattern id="ghost-dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="0.8" fill="#cbd5e1" /></pattern>
+        </defs>
+        <rect width="540" height="300" fill="url(#ghost-dots)" rx="12" />
+        {/* Ghost Arduino */}
+        <g transform="translate(90 150)" opacity="0.35">
+          <rect x={-NODE_WIDTH / 2} y={-NODE_HEIGHT / 2} width={NODE_WIDTH} height={NODE_HEIGHT} rx="12" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" strokeDasharray="6 4" />
+          {symbol('arduino', '#94a3b8')}
+          <text y="27" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="700">Arduino</text>
+        </g>
+        {/* Ghost Resistor */}
+        <g transform="translate(270 90)" opacity="0.25">
+          <rect x={-NODE_WIDTH / 2} y={-NODE_HEIGHT / 2} width={NODE_WIDTH} height={NODE_HEIGHT} rx="12" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" strokeDasharray="6 4" />
+          {symbol('resistor', '#94a3b8')}
+          <text y="27" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="700">resistor-1</text>
+        </g>
+        {/* Ghost LED */}
+        <g transform="translate(450 90)" opacity="0.2">
+          <rect x={-NODE_WIDTH / 2} y={-NODE_HEIGHT / 2} width={NODE_WIDTH} height={NODE_HEIGHT} rx="12" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" strokeDasharray="6 4" />
+          {symbol('led', '#94a3b8')}
+          <text y="27" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="700">led-1</text>
+        </g>
+        {/* Ghost PIR */}
+        <g transform="translate(270 210)" opacity="0.25">
+          <rect x={-NODE_WIDTH / 2} y={-NODE_HEIGHT / 2} width={NODE_WIDTH} height={NODE_HEIGHT} rx="12" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="2" strokeDasharray="6 4" />
+          {symbol('pir', '#94a3b8')}
+          <text y="27" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="700">pir-1</text>
+        </g>
+        {/* Ghost wires */}
+        <line x1="156" y1="140" x2="204" y2="100" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.3" />
+        <line x1="336" y1="90" x2="384" y2="90" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.25" />
+        <line x1="156" y1="160" x2="204" y2="200" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.3" />
+        {/* Centered label */}
+        <text x="270" y="280" textAnchor="middle" fill="#94a3b8" fontSize="12" fontWeight="500">Waiting for the first circuit:update from Quest…</text>
+      </svg>
+    </div>
+  );
 
   return (
     <div className="overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
