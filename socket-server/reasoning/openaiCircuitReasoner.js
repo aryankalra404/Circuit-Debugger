@@ -55,6 +55,8 @@ Required decision protocol:
 
 The reasoning field must contain a compact step-by-step trace using the actual pin IDs, followed by the verdict. Never contradict the trace: if the trace proves a valid series path and no explicit violation, hasFault must be false.`;
 
+const intentAddendum = `\n\nThe user has optionally described what they are trying to build. If a stated goal is provided, also check whether the overall circuit structure plausibly achieves it — for example, a sensor's output should be connected to something it is meant to control or signal. If the wiring is correct per-component but does not achieve the stated goal (e.g. sensor output is unconnected to the controlled component), that is a fault. Apply the same hasFault/faults contract for intent-related issues.`;
+
 function getClient() {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not configured.');
@@ -123,13 +125,20 @@ function prepareCircuitForReasoning(circuit) {
   };
 }
 
-async function reasonAboutCircuit(circuit) {
+async function reasonAboutCircuit(circuit, intent) {
   const prepared = prepareCircuitForReasoning(circuit);
   if (prepared.diagnosis) return prepared.diagnosis;
 
+  const resolvedIntent = typeof intent === 'string' ? intent.trim() : '';
+  const fullSystemPrompt = resolvedIntent ? systemPrompt + intentAddendum : systemPrompt;
+
   const componentCount = prepared.circuit.components.length;
   const wireCount = prepared.circuit.wires.length;
-  console.log(`[llm] sending ${componentCount} components and ${wireCount} wires to ${MODEL} (timeout ${TIMEOUT_MS}ms)`);
+  console.log(`[llm] sending ${componentCount} components and ${wireCount} wires to ${MODEL} (timeout ${TIMEOUT_MS}ms)${resolvedIntent ? ` intent: "${resolvedIntent}"` : ''}`);
+
+  const userContent = resolvedIntent
+    ? `User's stated goal: ${resolvedIntent}\n\nAnalyze this circuit JSON:\n${JSON.stringify(prepared.circuit)}`
+    : `Analyze this circuit JSON:\n${JSON.stringify(prepared.circuit)}`;
 
   const response = await getClient().chat.completions.create({
     model: MODEL,
@@ -137,8 +146,8 @@ async function reasonAboutCircuit(circuit) {
     max_tokens: 350,
     response_format: { type: 'json_schema', json_schema: circuitDiagnosisSchema },
     messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `Analyze this circuit JSON:\n${JSON.stringify(prepared.circuit)}` }
+      { role: 'system', content: fullSystemPrompt },
+      { role: 'user', content: userContent }
     ]
   });
 

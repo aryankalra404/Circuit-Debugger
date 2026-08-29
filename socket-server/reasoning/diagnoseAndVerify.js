@@ -22,8 +22,9 @@ async function diagnoseAndVerify(circuit, options = {}) {
   const retrieveChunks = options.retrieve || retrieve;
   const verify = options.verifyDiagnosis || verifyDiagnosis;
   const onStage = options.onStage;
+  const intent = typeof options.intent === 'string' ? options.intent.trim() : '';
 
-  const diagnosis = await reason(circuit);
+  const diagnosis = await reason(circuit, intent);
   report(onStage, 'reasoning:received', diagnosis);
   if (!diagnosis.hasFault) {
     return {

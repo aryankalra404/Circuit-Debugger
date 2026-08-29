@@ -52,9 +52,11 @@ async function runReasoningForSession(sessionId, revision) {
   }
 
   const circuit = session.circuit;
+  const intent = session.intent || '';
   let result;
   try {
     const pipeline = await diagnoseAndVerify(circuit, {
+      intent,
       onStage(stage, details) {
         console.log(`[pipeline] ${sessionId} ${stage}: ${JSON.stringify(details)}`);
       }
@@ -127,7 +129,7 @@ io.on('connection', (socket) => {
 
     const previous = sessions.get(sessionId);
     const revision = (previous?.revision || 0) + 1;
-    sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString(), revision });
+    sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString(), revision, intent: previous?.intent || '' });
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
     console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
@@ -136,6 +138,19 @@ io.on('connection', (socket) => {
     io.to(sessionId).emit('circuit:update', { sessionId, circuit: payload.circuit });
     console.log(`[circuit] emitted circuit:update to ${sessionId}: ${componentCount} components, ${wireCount} wires`);
     reasoningDebouncer.schedule(sessionId, revision);
+  });
+
+  socket.on('circuit:intent', (payload = {}) => {
+    const sessionId = cleanSessionId(payload.sessionId);
+    if (!sessionId) return;
+    const intent = typeof payload.intent === 'string' ? payload.intent.trim() : '';
+    const session = sessions.get(sessionId);
+    if (session) {
+      session.intent = intent;
+    } else {
+      sessions.set(sessionId, { circuit: null, updatedAt: null, intent });
+    }
+    console.log(`[intent] ${sessionId} (${socket.id}): ${intent ? `"${intent}"` : '(cleared)'}`);
   });
 
   socket.on('disconnect', (reason) => console.log(`[socket] disconnected ${socket.id} (${reason})`));
