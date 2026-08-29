@@ -3,7 +3,22 @@
 import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-type CircuitResult = { ok: boolean; message: string };
+type Confidence = 'confirmed' | 'corrected' | 'uncertain' | null;
+type CircuitResult = {
+  ok: boolean;
+  message: string;
+  confidence?: Confidence;
+  groundedOn?: string | null;
+  suspectedComponent?: string | null;
+  suspectedComponents?: string[];
+  faults?: Array<{
+    componentId: string;
+    issue?: string;
+    verdict?: Exclude<Confidence, null>;
+    finalMessage?: string;
+    groundedOn?: string;
+  }>;
+};
 type LedEvent = { componentId: string; on: boolean };
 type PhotoResult = { components: string[]; diagnosis: string; fileName: string };
 
@@ -40,7 +55,7 @@ export default function DashboardPage() {
     socket.on('simulation:led', (event: LedEvent) => {
       if (event.componentId === 'led-1') setLedOn(event.on);
     });
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, []);
 
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
@@ -83,6 +98,14 @@ export default function DashboardPage() {
 
   const isOk = hasResult && result.ok;
   const statusClass = isOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : hasResult ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700';
+  const confidenceClass = result.confidence === 'confirmed'
+    ? 'border-red-200 bg-red-600 text-white'
+    : result.confidence === 'corrected'
+      ? 'border-amber-200 bg-amber-100 text-amber-800'
+      : 'border-slate-300 bg-white text-slate-600';
+  const faultComponents = result.suspectedComponents?.length
+    ? result.suspectedComponents
+    : result.suspectedComponent ? [result.suspectedComponent] : [];
 
   return (
     <main className="min-h-screen px-5 py-8 sm:px-8 lg:px-12">
@@ -116,9 +139,24 @@ export default function DashboardPage() {
                 <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-4 border-white shadow-sm ${isOk ? 'bg-emerald-500' : hasResult ? 'bg-red-500' : 'bg-slate-400'}`}>
                   <span className="text-lg font-bold text-white">{isOk ? '✓' : hasResult ? '!' : '…'}</span>
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">{isOk ? 'Circuit OK' : hasResult ? 'Circuit fault' : 'No reading yet'}</p>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">{isOk ? 'Circuit OK' : hasResult ? 'Circuit fault' : 'No reading yet'}</p>
+                    {hasResult && result.confidence && (
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold capitalize leading-4 ${confidenceClass}`}>
+                        {result.confidence}
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-base font-medium leading-6">{result.message}</p>
+                  {hasResult && result.confidence && result.groundedOn && (
+                    <p className="mt-2 text-xs leading-5 text-slate-500">Source: {result.groundedOn}</p>
+                  )}
+                  {hasResult && faultComponents.length > 0 && (
+                    <p className="mt-2 text-xs font-medium text-slate-600">
+                      Affected: {faultComponents.join(', ')}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
