@@ -131,6 +131,10 @@ io.on('connection', (socket) => {
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
     console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
+    // Relay the exact structural snapshot to every client in this session so
+    // the dashboard can mirror the Quest circuit while it is being built.
+    io.to(sessionId).emit('circuit:update', { sessionId, circuit: payload.circuit });
+    console.log(`[circuit] emitted circuit:update to ${sessionId}: ${componentCount} components, ${wireCount} wires`);
     reasoningDebouncer.schedule(sessionId, revision);
   });
 
