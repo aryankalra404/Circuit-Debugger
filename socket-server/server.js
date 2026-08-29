@@ -1,6 +1,9 @@
 const http = require('http');
+require('dotenv').config();
 const { Server } = require('socket.io');
+// Kept as a deterministic offline fallback if the LLM is unavailable.
 const { diagnoseCircuit } = require('./rules');
+const { reasonAboutCircuit, toCircuitResult } = require('./reasoning/openaiCircuitReasoner');
 
 const PORT = Number(process.env.PORT || 3001);
 const sessions = new Map();
@@ -38,7 +41,7 @@ io.on('connection', (socket) => {
     console.log(`[session] ${socket.id} joined ${sessionId}`);
   });
 
-  socket.on('circuit:update', (payload = {}) => {
+  socket.on('circuit:update', async (payload = {}) => {
     const sessionId = cleanSessionId(payload.sessionId);
     if (!sessionId || !payload.circuit || typeof payload.circuit !== 'object') {
       socket.emit('circuit:result', { ok: false, message: 'circuit:update needs a sessionId and circuit JSON.' });
@@ -52,12 +55,28 @@ io.on('connection', (socket) => {
       socket.join(sessionId);
     }
 
-    sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString() });
+    const previous = sessions.get(sessionId);
+    const revision = (previous?.revision || 0) + 1;
+    sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString(), revision });
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
     console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
 
-    const result = diagnoseCircuit(payload.circuit);
+    let result;
+    try {
+      const diagnosis = await reasonAboutCircuit(payload.circuit);
+      result = toCircuitResult(diagnosis);
+      console.log(`[llm] parsed result for ${sessionId}: ${result.ok ? 'OK' : 'FAULT'}`);
+    } catch (error) {
+      console.warn(`[llm] failed for ${sessionId}; using rule fallback: ${error.message}`);
+      result = diagnoseCircuit(payload.circuit);
+    }
+
+    // Do not publish a slow response for an older AR circuit snapshot.
+    if (sessions.get(sessionId)?.revision !== revision) {
+      console.log(`[result] ${sessionId}: skipped stale revision ${revision}`);
+      return;
+    }
     console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} — ${result.message}`);
 
     // Broadcast to the room so a dashboard/client paired to the same session also receives it.

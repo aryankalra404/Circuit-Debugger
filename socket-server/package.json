@@ -7,9 +7,12 @@
   "scripts": {
     "start": "node server.js",
     "test:client": "node test/client.js",
-    "test:rules": "node test/rules.js"
+    "test:rules": "node test/rules.js",
+    "test:reasoning": "node test/reasoning.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.7",
+    "openai": "^4.86.2",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1"
   }
