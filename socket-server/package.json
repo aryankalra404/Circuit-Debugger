@@ -8,7 +8,11 @@
     "start": "node server.js",
     "test:client": "node test/client.js",
     "test:rules": "node test/rules.js",
-    "test:reasoning": "node test/reasoning.js"
+    "test:reasoning": "node test/reasoning.js",
+    "test:live-behavior": "node test/liveBehavior.js",
+    "rag:index": "node scripts/buildIndex.js",
+    "test:rag": "node test/rag.js",
+    "test:pipeline": "node test/pipeline.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

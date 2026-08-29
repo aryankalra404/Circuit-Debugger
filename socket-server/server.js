@@ -3,10 +3,35 @@ require('dotenv').config();
 const { Server } = require('socket.io');
 // Kept as a deterministic offline fallback if the LLM is unavailable.
 const { diagnoseCircuit } = require('./rules');
-const { reasonAboutCircuit, toCircuitResult } = require('./reasoning/openaiCircuitReasoner');
+const { diagnoseAndVerify } = require('./reasoning/diagnoseAndVerify');
 
 const PORT = Number(process.env.PORT || 3001);
+const REASONING_DEBOUNCE_MS = 1200;
 const sessions = new Map();
+
+function createCircuitUpdateDebouncer({ delayMs = REASONING_DEBOUNCE_MS, onFire, log = console.log }) {
+  const timers = new Map();
+
+  return {
+    schedule(sessionId, revision) {
+      const wasReset = timers.has(sessionId);
+      if (wasReset) clearTimeout(timers.get(sessionId));
+      log(`[debounce] ${sessionId}: ${wasReset ? 'reset' : 'started'}; waiting ${delayMs}ms before reasoning`);
+      timers.set(sessionId, setTimeout(() => {
+        timers.delete(sessionId);
+        log(`[debounce] ${sessionId}: fired for revision ${revision}; calling reasoning`);
+        Promise.resolve(onFire(sessionId, revision)).catch((error) => {
+          console.error(`[debounce] ${sessionId}: processing failed: ${error.message}`);
+        });
+      }, delayMs));
+    },
+    cancel(sessionId) {
+      if (!timers.has(sessionId)) return;
+      clearTimeout(timers.get(sessionId));
+      timers.delete(sessionId);
+    }
+  };
+}
 
 const httpServer = http.createServer((request, response) => {
   response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -17,6 +42,47 @@ const io = new Server(httpServer, {
   cors: { origin: '*' },
   transports: ['websocket', 'polling']
 });
+
+async function runReasoningForSession(sessionId, revision) {
+  const session = sessions.get(sessionId);
+  // A newer update is already waiting, so never reason about an old snapshot.
+  if (!session || session.revision !== revision) {
+    console.log(`[result] ${sessionId}: skipped stale revision ${revision}`);
+    return;
+  }
+
+  const circuit = session.circuit;
+  let result;
+  try {
+    const pipeline = await diagnoseAndVerify(circuit, {
+      onStage(stage, details) {
+        console.log(`[pipeline] ${sessionId} ${stage}: ${JSON.stringify(details)}`);
+      }
+    });
+    result = pipeline.result;
+  } catch (error) {
+    console.warn(`[pipeline] failed for ${sessionId}; using rule fallback: ${error.message}`);
+    const fallback = diagnoseCircuit(circuit);
+    result = { ...fallback, confidence: null, groundedOn: null };
+  }
+
+  // Do not publish a slow response for an older AR circuit snapshot.
+  if (sessions.get(sessionId)?.revision !== revision) {
+    console.log(`[result] ${sessionId}: skipped stale revision ${revision}`);
+    return;
+  }
+  console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} (${result.confidence || 'not-applicable'}) — ${result.message}`);
+
+  io.to(sessionId).emit('circuit:result', result);
+  const leds = Array.isArray(circuit.components)
+    ? circuit.components.filter((component) => component.type === 'led')
+    : [];
+  for (const led of leds) {
+    io.to(sessionId).emit('simulation:led', { componentId: led.id, on: result.ok });
+  }
+}
+
+const reasoningDebouncer = createCircuitUpdateDebouncer({ onFire: runReasoningForSession });
 
 function cleanSessionId(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -41,7 +107,7 @@ io.on('connection', (socket) => {
     console.log(`[session] ${socket.id} joined ${sessionId}`);
   });
 
-  socket.on('circuit:update', async (payload = {}) => {
+  socket.on('circuit:update', (payload = {}) => {
     const sessionId = cleanSessionId(payload.sessionId);
     if (!sessionId || !payload.circuit || typeof payload.circuit !== 'object') {
       socket.emit('circuit:result', { ok: false, message: 'circuit:update needs a sessionId and circuit JSON.' });
@@ -61,35 +127,14 @@ io.on('connection', (socket) => {
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
     console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
-
-    let result;
-    try {
-      const diagnosis = await reasonAboutCircuit(payload.circuit);
-      result = toCircuitResult(diagnosis);
-      console.log(`[llm] parsed result for ${sessionId}: ${result.ok ? 'OK' : 'FAULT'}`);
-    } catch (error) {
-      console.warn(`[llm] failed for ${sessionId}; using rule fallback: ${error.message}`);
-      result = diagnoseCircuit(payload.circuit);
-    }
-
-    // Do not publish a slow response for an older AR circuit snapshot.
-    if (sessions.get(sessionId)?.revision !== revision) {
-      console.log(`[result] ${sessionId}: skipped stale revision ${revision}`);
-      return;
-    }
-    console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} — ${result.message}`);
-
-    // Broadcast to the room so a dashboard/client paired to the same session also receives it.
-    io.to(sessionId).emit('circuit:result', result);
-    const leds = Array.isArray(payload.circuit.components)
-      ? payload.circuit.components.filter((component) => component.type === 'led')
-      : [];
-    for (const led of leds) {
-      io.to(sessionId).emit('simulation:led', { componentId: led.id, on: result.ok });
-    }
+    reasoningDebouncer.schedule(sessionId, revision);
   });
 
   socket.on('disconnect', (reason) => console.log(`[socket] disconnected ${socket.id} (${reason})`));
 });
 
-httpServer.listen(PORT, () => console.log(`CircuitDoctor Socket.IO bridge listening on http://0.0.0.0:${PORT}`));
+if (require.main === module) {
+  httpServer.listen(PORT, () => console.log(`CircuitDoctor Socket.IO bridge listening on http://0.0.0.0:${PORT}`));
+}
+
+module.exports = { createCircuitUpdateDebouncer, REASONING_DEBOUNCE_MS };
