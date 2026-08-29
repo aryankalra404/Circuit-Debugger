@@ -21,7 +21,7 @@ public class QuestCircuitBridge : MonoBehaviour
         public PinPoint anode;
         [Tooltip("Short leg / cathode PinPoint. Assign LED1_L2 for LED 1.")]
         public PinPoint cathode;
-        [Tooltip("The virtual AR LED to light when simulation:led targets this ID.")]
+        [Tooltip("Optional visual LED. QuestCircuitBridge keeps it off and does not subscribe to simulation:led events.")]
         public VirtualLed virtualLed;
     }
 
@@ -63,13 +63,21 @@ public class QuestCircuitBridge : MonoBehaviour
 
     private SocketIOUnity socket;
     private string lastCircuitJson = "";
-    private readonly Dictionary<string, VirtualLed> ledVisuals = new Dictionary<string, VirtualLed>();
-    private readonly Dictionary<string, bool> pendingLedStates = new Dictionary<string, bool>();
-    private readonly object pendingLedLock = new object();
+    private readonly HashSet<PinPoint> faultHighlightedPins = new HashSet<PinPoint>();
+    private readonly object pendingCircuitResultLock = new object();
+    private bool hasPendingCircuitResult;
+    private bool pendingCircuitOk;
+    private string pendingCircuitMessage;
+    private string pendingSuspectedComponent;
+    private List<string> pendingSuspectedComponents = new List<string>();
+    private string pendingConfidence;
+    private string pendingGroundedOn;
 
     private void Awake()
     {
-        BuildLedVisualMap();
+        // Virtual LEDs are intentionally visual-only and remain off. Circuit
+        // diagnosis never controls them, and simulation:led is not subscribed.
+        SetAllVirtualLedsOff();
     }
 
     private async void Start()
@@ -87,7 +95,6 @@ public class QuestCircuitBridge : MonoBehaviour
             Transport = SocketIOClient.Transport.TransportProtocol.WebSocket
         });
         socket.JsonSerializer = new NewtonsoftJsonSerializer();
-        socket.On("simulation:led", OnLedEvent);
         socket.On("circuit:result", OnCircuitResult);
 
         try
@@ -103,18 +110,11 @@ public class QuestCircuitBridge : MonoBehaviour
         }
     }
 
-    private void BuildLedVisualMap()
+    private void SetAllVirtualLedsOff()
     {
-        ledVisuals.Clear();
         foreach (LedDefinition led in leds)
         {
-            if (led == null || string.IsNullOrWhiteSpace(led.id) || led.virtualLed == null) continue;
-            if (ledVisuals.ContainsKey(led.id))
-            {
-                Debug.LogWarning($"[QuestCircuitBridge] Duplicate LED component id '{led.id}'. Only the first virtual LED will receive simulation events.");
-                continue;
-            }
-            ledVisuals.Add(led.id, led.virtualLed);
+            if (led != null && led.virtualLed != null) led.virtualLed.SetLit(false);
         }
     }
 
@@ -129,24 +129,32 @@ public class QuestCircuitBridge : MonoBehaviour
 
     private void Update()
     {
-        // Socket callbacks may be on a background thread. Apply all visual
-        // changes on Unity's main thread.
-        List<KeyValuePair<string, bool>> states;
-        lock (pendingLedLock)
-        {
-            if (pendingLedStates.Count == 0) return;
-            states = new List<KeyValuePair<string, bool>>(pendingLedStates);
-            pendingLedStates.Clear();
-        }
+        // circuit:result only changes PinPoint fault-highlight visuals.
+        // VirtualLed state is intentionally not controlled by this bridge.
+        ApplyPendingCircuitResult();
+    }
 
-        foreach (KeyValuePair<string, bool> state in states)
+    private void ApplyPendingCircuitResult()
+    {
+        // This branch must never call VirtualLed.SetLit.
+        // It is strictly for persistent PinPoint fault highlighting.
+        bool hasCircuitResult;
+        bool circuitOk;
+        string circuitMessage;
+        List<string> suspectedComponents;
+        string confidence;
+        string groundedOn;
+        lock (pendingCircuitResultLock)
         {
-            VirtualLed visual;
-            if (ledVisuals.TryGetValue(state.Key, out visual) && visual != null)
-            {
-                visual.SetLit(state.Value);
-            }
+            hasCircuitResult = hasPendingCircuitResult;
+            circuitOk = pendingCircuitOk;
+            circuitMessage = pendingCircuitMessage;
+            suspectedComponents = new List<string>(pendingSuspectedComponents);
+            confidence = pendingConfidence;
+            groundedOn = pendingGroundedOn;
+            hasPendingCircuitResult = false;
         }
+        if (hasCircuitResult) ApplyFaultHighlightResult(circuitOk, circuitMessage, suspectedComponents, confidence, groundedOn);
     }
 
     private void SendCircuitIfChanged()
@@ -225,22 +233,112 @@ public class QuestCircuitBridge : MonoBehaviour
         return true;
     }
 
-    private void OnLedEvent(SocketIOResponse response)
-    {
-        JObject payload = response.GetValue<JObject>();
-        string componentId = payload != null ? payload.Value<string>("componentId") : null;
-        if (string.IsNullOrWhiteSpace(componentId) || !ledVisuals.ContainsKey(componentId)) return;
-
-        lock (pendingLedLock)
-        {
-            pendingLedStates[componentId] = payload.Value<bool>("on");
-        }
-    }
-
     private void OnCircuitResult(SocketIOResponse response)
     {
         JObject payload = response.GetValue<JObject>();
-        Debug.Log($"[QuestCircuitBridge] {(payload.Value<bool>("ok") ? "Circuit valid" : "Circuit error")}: {payload.Value<string>("message")}");
+        if (payload == null) return;
+        lock (pendingCircuitResultLock)
+        {
+            pendingCircuitOk = payload.Value<bool>("ok");
+            pendingCircuitMessage = payload.Value<string>("message");
+            pendingSuspectedComponent = payload.Value<string>("suspectedComponent");
+            pendingSuspectedComponents.Clear();
+            JArray componentIds = payload["suspectedComponents"] as JArray;
+            if (componentIds != null)
+            {
+                foreach (JToken componentId in componentIds)
+                {
+                    string id = componentId.Value<string>();
+                    if (!string.IsNullOrWhiteSpace(id) && !pendingSuspectedComponents.Contains(id)) pendingSuspectedComponents.Add(id);
+                }
+            }
+            // Accept legacy servers that emit only the singular field.
+            if (pendingSuspectedComponents.Count == 0 && !string.IsNullOrWhiteSpace(pendingSuspectedComponent))
+            {
+                pendingSuspectedComponents.Add(pendingSuspectedComponent);
+            }
+            pendingConfidence = payload.Value<string>("confidence");
+            pendingGroundedOn = payload.Value<string>("groundedOn");
+            hasPendingCircuitResult = true;
+        }
+    }
+
+    private void ApplyFaultHighlightResult(bool ok, string message, List<string> suspectedComponents, string confidence, string groundedOn)
+    {
+        // Every new diagnosis replaces the old marker. This only colors each
+        // component PinPoint's assigned snap-sphere renderer; it never changes
+        // the component's VirtualLed or any simulation state.
+        ClearFaultHighlights();
+        if (!ok)
+        {
+            foreach (string suspectedComponent in suspectedComponents)
+            {
+                foreach (PinPoint pin in GetPinsForComponent(suspectedComponent))
+                {
+                    HighlightFaultEndpoint(pin);
+                    // A Connection contains both wire endpoints. Mark the pin on
+                    // the other side red too, so the whole faulty connection is
+                    // visible instead of only the component-side snap sphere.
+                    if (circuitGraph == null) continue;
+                    foreach (PinPoint connectedPin in circuitGraph.GetConnectedPins(pin))
+                    {
+                        HighlightFaultEndpoint(connectedPin);
+                    }
+                }
+            }
+        }
+
+        string sourceSuffix = string.IsNullOrWhiteSpace(groundedOn) ? "" : $" Source: {groundedOn}";
+        string confidenceSuffix = string.IsNullOrWhiteSpace(confidence) ? "" : $" ({confidence})";
+        Debug.Log($"[QuestCircuitBridge] {(ok ? "Circuit valid" : "Circuit error")}{confidenceSuffix}: {message}{sourceSuffix}");
+    }
+
+    private IEnumerable<PinPoint> GetPinsForComponent(string componentId)
+    {
+        foreach (LedDefinition led in leds)
+        {
+            if (led != null && led.id == componentId)
+            {
+                if (led.anode != null) yield return led.anode;
+                if (led.cathode != null) yield return led.cathode;
+                yield break;
+            }
+        }
+        foreach (ResistorDefinition resistor in resistors)
+        {
+            if (resistor != null && resistor.id == componentId)
+            {
+                if (resistor.a != null) yield return resistor.a;
+                if (resistor.b != null) yield return resistor.b;
+                yield break;
+            }
+        }
+        foreach (PirDefinition pir in pirSensors)
+        {
+            if (pir != null && pir.id == componentId)
+            {
+                if (pir.vcc != null) yield return pir.vcc;
+                if (pir.signal != null) yield return pir.signal;
+                if (pir.gnd != null) yield return pir.gnd;
+                yield break;
+            }
+        }
+    }
+
+    private void ClearFaultHighlights()
+    {
+        foreach (PinPoint pin in faultHighlightedPins)
+        {
+            if (pin != null) pin.SetFaultHighlighted(false);
+        }
+        faultHighlightedPins.Clear();
+    }
+
+    private void HighlightFaultEndpoint(PinPoint pin)
+    {
+        if (pin == null || faultHighlightedPins.Contains(pin)) return;
+        pin.SetFaultHighlighted(true);
+        faultHighlightedPins.Add(pin);
     }
 
     private async void OnDestroy()

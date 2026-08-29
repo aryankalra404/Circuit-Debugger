@@ -17,24 +17,40 @@ public class PinPoint : MonoBehaviour
     public Color defaultColor = Color.white;
     public Color highlightColor = Color.yellow;
     public Color connectedColor = Color.green;
+    [Tooltip("Persistent diagnostic highlight. This takes priority over hover and connection colors.")]
+    public Color faultColor = Color.red;
+
+    private bool isHighlighted;
+    private bool isFaultHighlighted;
 
     void Awake()
     {
-        if (pinRenderer != null)
-            pinRenderer.material.color = defaultColor;
+        RefreshVisual();
     }
 
     public void SetHighlighted(bool on)
     {
-        if (pinRenderer == null) return;
-        pinRenderer.material.color = on ? highlightColor : (isOccupied || occupyingPlug != null ? connectedColor : defaultColor);
+        isHighlighted = on;
+        RefreshVisual();
+    }
+
+    public void SetFaultHighlighted(bool on)
+    {
+        isFaultHighlighted = on;
+        RefreshVisual();
     }
 
     public void SetConnected(bool connected)
     {
         isOccupied = connected;
-        if (pinRenderer != null)
-            pinRenderer.material.color = connected ? connectedColor : defaultColor;
+        RefreshVisual();
+    }
+
+    private void RefreshVisual()
+    {
+        if (pinRenderer == null) return;
+        if (isFaultHighlighted) pinRenderer.material.color = faultColor;
+        else if (isHighlighted) pinRenderer.material.color = highlightColor;
+        else pinRenderer.material.color = isOccupied || occupyingPlug != null ? connectedColor : defaultColor;
     }
 }
-

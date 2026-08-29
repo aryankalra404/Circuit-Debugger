@@ -63,7 +63,14 @@ async function runReasoningForSession(sessionId, revision) {
   } catch (error) {
     console.warn(`[pipeline] failed for ${sessionId}; using rule fallback: ${error.message}`);
     const fallback = diagnoseCircuit(circuit);
-    result = { ...fallback, confidence: null, groundedOn: null };
+    result = {
+      ...fallback,
+      confidence: null,
+      groundedOn: null,
+      suspectedComponent: null,
+      suspectedComponents: [],
+      faults: []
+    };
   }
 
   // Do not publish a slow response for an older AR circuit snapshot.
@@ -74,12 +81,9 @@ async function runReasoningForSession(sessionId, revision) {
   console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} (${result.confidence || 'not-applicable'}) — ${result.message}`);
 
   io.to(sessionId).emit('circuit:result', result);
-  const leds = Array.isArray(circuit.components)
-    ? circuit.components.filter((component) => component.type === 'led')
-    : [];
-  for (const led of leds) {
-    io.to(sessionId).emit('simulation:led', { componentId: led.id, on: result.ok });
-  }
+  // Diagnosis and LED simulation are deliberately independent. A fault must
+  // never turn an AR LED off; emit simulation:led only from an explicit
+  // simulation source, not from a circuit:result verdict.
 }
 
 const reasoningDebouncer = createCircuitUpdateDebouncer({ onFire: runReasoningForSession });

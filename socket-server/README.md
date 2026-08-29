@@ -78,12 +78,26 @@ fault emits this backwards-compatible extended payload:
   "ok": false,
   "message": "The LED polarity is reversed; the anode must be on the positive side.",
   "confidence": "confirmed",
-  "groundedOn": "led.md — Pin identification and polarity:"
+  "groundedOn": "led.md — Pin identification and polarity:",
+  "suspectedComponent": "led-1",
+  "suspectedComponents": ["led-1", "pir-1"],
+  "faults": [
+    {
+      "componentId": "led-1",
+      "issue": "LED anode is connected to GND.",
+      "verdict": "confirmed",
+      "finalMessage": "The LED anode must be on the positive side.",
+      "groundedOn": "led.md — Pin identification and polarity:"
+    }
+  ]
 }
 ```
 
-`confidence` and `groundedOn` are `null` when no fault is found or the rules
-fallback is used. `uncertain` also maps to `ok: false`, because it warrants
+`confidence`, `groundedOn`, and `suspectedComponent` are `null` when no fault
+is found or the rules fallback is used. `suspectedComponents` and `faults` are
+empty arrays in that case. The legacy `suspectedComponent` remains the first
+fault for older clients; new clients should use `suspectedComponents` and
+`faults`. `uncertain` also maps to `ok: false`, because it warrants
 student attention, but its message explicitly states that the spec could not
 confirm it. If reasoning, retrieval, or verification fails, the existing rules
 fallback is used.
@@ -115,7 +129,7 @@ Client → server:
 
 Server → all clients in that session:
 
-- `circuit:result` — `{ ok, message }`
+- `circuit:result` — `{ ok, message, confidence, groundedOn, suspectedComponent, suspectedComponents, faults }`
 - `simulation:led` — `{ componentId, on }`
 
 ## LLM reasoning and fallback
@@ -132,8 +146,8 @@ It requests strict JSON from OpenAI with this shape:
 }
 ```
 
-That output is mapped back to the existing `circuit:result` contract, so Unity
-and the dashboard need no changes. If the API key is missing, OpenAI errors, or
+That output is mapped back to the extended backward-compatible `circuit:result`
+contract. If the API key is missing, OpenAI errors, or
 the request exceeds the timeout, the server logs `[llm] failed ... using rule
 fallback` and runs the old deterministic logic instead.
 

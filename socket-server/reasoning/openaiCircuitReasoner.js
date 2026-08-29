@@ -6,6 +6,8 @@ const NOTHING_WIRED_YET = {
   hasFault: false,
   suspectedComponent: null,
   suspectedIssue: null,
+  suspectedComponents: [],
+  faults: [],
   reasoning: 'Nothing wired yet.'
 };
 
@@ -17,11 +19,21 @@ const circuitDiagnosisSchema = {
     additionalProperties: false,
     properties: {
       hasFault: { type: 'boolean' },
-      suspectedComponent: { type: ['string', 'null'] },
-      suspectedIssue: { type: ['string', 'null'] },
+      faults: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            componentId: { type: 'string' },
+            issue: { type: 'string' }
+          },
+          required: ['componentId', 'issue']
+        }
+      },
       reasoning: { type: 'string' }
     },
-    required: ['hasFault', 'suspectedComponent', 'suspectedIssue', 'reasoning']
+    required: ['hasFault', 'faults', 'reasoning']
   }
 };
 
@@ -39,6 +51,7 @@ Required decision protocol:
 3. The PIR in this demo is an HC-SR501: verify PIR_VCC -> 5V specifically (3V3/3.3V is a fault), PIR_GND -> GND, and PIR_SIGNAL -> a non-supply, non-ground signal destination such as a D-number input. Swapped VCC/GND, signal tied to a supply/ground, or an unconnected required terminal is a fault.
 4. For a resistor, flag only an explicit issue such as disconnection, bypass, invalid value, or absence from an LED's required series path.
 5. Set hasFault true ONLY when a specific, checkable condition above is violated. Do not report a vague concern, missing optional component, or an imagined issue. If no listed violation is proven by the wires, set hasFault false.
+6. Return every independent demonstrated fault in faults. Each item must contain the affected component's exact ID and a concise issue. Return faults: [] when hasFault is false. Do not list the same component twice.
 
 The reasoning field must contain a compact step-by-step trace using the actual pin IDs, followed by the verdict. Never contradict the trace: if the trace proves a valid series path and no explicit violation, hasFault must be false.`;
 
@@ -52,15 +65,29 @@ function getClient() {
 }
 
 function validateDiagnosis(value) {
-  if (!value || typeof value !== 'object' || typeof value.hasFault !== 'boolean' || typeof value.reasoning !== 'string') {
+  if (!value || typeof value !== 'object' || typeof value.hasFault !== 'boolean' || typeof value.reasoning !== 'string' || !Array.isArray(value.faults)) {
     throw new Error('OpenAI returned an invalid diagnosis shape.');
   }
-  for (const key of ['suspectedComponent', 'suspectedIssue']) {
-    if (value[key] !== null && typeof value[key] !== 'string') {
-      throw new Error(`OpenAI returned an invalid ${key}.`);
-    }
+  if (value.hasFault !== (value.faults.length > 0)) {
+    throw new Error('OpenAI returned inconsistent hasFault and faults values.');
   }
-  return value;
+  const componentIds = new Set();
+  for (const fault of value.faults) {
+    if (!fault || typeof fault.componentId !== 'string' || !fault.componentId.trim() || typeof fault.issue !== 'string' || !fault.issue.trim()) {
+      throw new Error('OpenAI returned an invalid fault entry.');
+    }
+    if (componentIds.has(fault.componentId)) throw new Error(`OpenAI returned duplicate fault component ${fault.componentId}.`);
+    componentIds.add(fault.componentId);
+  }
+  const suspectedComponents = value.faults.map((fault) => fault.componentId);
+  const firstFault = value.faults[0] || null;
+  return {
+    ...value,
+    // Backward-compatible fields for existing consumers.
+    suspectedComponents,
+    suspectedComponent: firstFault ? firstFault.componentId : null,
+    suspectedIssue: firstFault ? firstFault.issue : null
+  };
 }
 
 function getComponentPinIds(component) {

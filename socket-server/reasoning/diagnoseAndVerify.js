@@ -6,8 +6,14 @@ function report(onStage, stage, details) {
   if (onStage) onStage(stage, details);
 }
 
-function buildRetrievalQuery(diagnosis) {
-  return `${diagnosis.suspectedComponent || 'circuit component'}: ${diagnosis.suspectedIssue || diagnosis.reasoning}`;
+function buildRetrievalQuery(fault) {
+  return `${fault.componentId}: ${fault.issue}`;
+}
+
+function aggregateConfidence(verifications) {
+  if (verifications.some((verification) => verification.verdict === 'uncertain')) return 'uncertain';
+  if (verifications.some((verification) => verification.verdict === 'corrected')) return 'corrected';
+  return 'confirmed';
 }
 
 /** Runs the complete fault-only grounding pipeline. Throws so server.js can use its rules fallback. */
@@ -20,31 +26,61 @@ async function diagnoseAndVerify(circuit, options = {}) {
   const diagnosis = await reason(circuit);
   report(onStage, 'reasoning:received', diagnosis);
   if (!diagnosis.hasFault) {
-    return { result: { ...toCircuitResult(diagnosis), confidence: null, groundedOn: null }, diagnosis, chunks: [], verification: null };
+    return {
+      result: {
+        ...toCircuitResult(diagnosis),
+        confidence: null,
+        groundedOn: null,
+        suspectedComponent: null,
+        suspectedComponents: [],
+        faults: []
+      },
+      diagnosis,
+      chunks: [],
+      verification: null
+    };
   }
 
-  const query = buildRetrievalQuery(diagnosis);
-  report(onStage, 'rag:query', { query });
-  const chunks = await retrieveChunks(query, 2);
-  report(onStage, 'rag:retrieved', chunks.map(({ source, heading, score }) => ({ source, heading, score })));
+  const retrievals = await Promise.all(diagnosis.faults.map(async (fault) => {
+    const query = buildRetrievalQuery(fault);
+    report(onStage, 'rag:query', { componentId: fault.componentId, query });
+    const chunks = await retrieveChunks(query, 2);
+    report(onStage, 'rag:retrieved', {
+      componentId: fault.componentId,
+      chunks: chunks.map(({ source, heading, score }) => ({ source, heading, score }))
+    });
+    return { fault, chunks };
+  }));
 
-  report(onStage, 'verification:sent', { diagnosis, chunkCount: chunks.length });
-  const verification = await verify(diagnosis, chunks);
+  report(onStage, 'verification:sent', { diagnosis, faultCount: retrievals.length });
+  const verification = await verify(diagnosis, retrievals);
   report(onStage, 'verification:received', verification);
+
+  const verifiedFaults = verification.verifications.map((verified) => {
+    const fault = diagnosis.faults.find((candidate) => candidate.componentId === verified.componentId);
+    return { ...fault, ...verified };
+  });
+  const groundedOn = [...new Set(verifiedFaults.map((fault) => fault.groundedOn))].join('; ');
+  const message = verifiedFaults.map((fault) => fault.finalMessage).join(' ');
 
   // An uncertain result still needs student attention, so it remains a false
   // `ok` result but the verifier's message makes its uncertainty explicit.
   return {
     result: {
       ok: false,
-      message: verification.finalMessage,
-      confidence: verification.verdict,
-      groundedOn: verification.groundedOn
+      message,
+      confidence: aggregateConfidence(verifiedFaults),
+      groundedOn,
+      // Legacy singular field remains the first component for old clients.
+      suspectedComponent: diagnosis.suspectedComponent || null,
+      suspectedComponents: diagnosis.suspectedComponents,
+      faults: verifiedFaults
     },
     diagnosis,
-    chunks,
+    chunks: retrievals.flatMap((retrieval) => retrieval.chunks),
+    retrievals,
     verification
   };
 }
 
-module.exports = { diagnoseAndVerify, buildRetrievalQuery };
+module.exports = { diagnoseAndVerify, buildRetrievalQuery, aggregateConfidence };
