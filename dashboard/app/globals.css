@@ -13,3 +13,13 @@ body {
 }
 
 button, input { font: inherit; }
+
+.graph-edge {
+  stroke-dasharray: 900;
+  stroke-dashoffset: 900;
+  animation: graph-draw-in 700ms ease-out forwards;
+}
+
+.graph-node { transition: transform 420ms ease; }
+
+@keyframes graph-draw-in { to { stroke-dashoffset: 0; } }
