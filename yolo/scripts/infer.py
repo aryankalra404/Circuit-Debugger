@@ -15,7 +15,7 @@ from ultralytics import YOLO
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 YOLO_ROOT = Path(os.environ.get("YOLO_ROOT", str(_SCRIPTS_DIR.parent)))
 
-DEFAULT_WEIGHTS = YOLO_ROOT / "runs" / "circuitdoctor_v2" / "weights" / "best.pt"
+DEFAULT_WEIGHTS = YOLO_ROOT / "runs" / "circuitdoctor_v1-2" / "weights" / "best.pt"
 DEFAULT_OUTPUT_DIR = YOLO_ROOT / "runs" / "inference"
 
 
@@ -74,7 +74,8 @@ def save_annotated_image(result, image_path: Path, output_dir: str | Path) -> Pa
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
 
-    output_path = output / f"{image_path.stem}_annotated{image_path.suffix}"
+    # Always save the annotated output as a .jpg, even if input was a video
+    output_path = output / f"{image_path.stem}_annotated.jpg"
     annotated = result.plot()
     cv2.imwrite(str(output_path), annotated)
     return output_path

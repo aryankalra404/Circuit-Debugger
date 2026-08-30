@@ -9,8 +9,8 @@ export async function POST(request: Request) {
   if (!(photo instanceof File) || photo.size === 0) {
     return NextResponse.json({ error: 'Please choose a circuit photo.' }, { status: 400 });
   }
-  if (!photo.type.startsWith('image/')) {
-    return NextResponse.json({ error: 'Only image files are supported.' }, { status: 415 });
+  if (!photo.type.startsWith('image/') && !photo.type.startsWith('video/')) {
+    return NextResponse.json({ error: 'Only image and video files are supported.' }, { status: 415 });
   }
   if (photo.size > 10 * 1024 * 1024) {
     return NextResponse.json({ error: 'Use an image smaller than 10 MB.' }, { status: 413 });
@@ -48,6 +48,8 @@ export async function POST(request: Request) {
       annotated_image_url: `${PYTHON_API_URL}/static/${result.annotated_image_filename}`,
       has_faults: result.has_faults,
       summary: result.summary,
+      // Reka visual verification — null if API key not configured
+      reka: result.reka ?? null,
     });
 
   } catch (err: any) {
