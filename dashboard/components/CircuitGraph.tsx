@@ -40,13 +40,19 @@ export function CircuitGraph({ circuit, faultComponents, confidence }: Props) {
   components.forEach((component) => Object.values(component).forEach((value) => {
     if (typeof value === 'string' && ![component.id, component.type, '220 ohm'].includes(value)) pinOwners.set(value, component);
   }));
+  const componentIds = new Set(components.map((component) => component.id));
+  const componentForEndpoint = (endpoint: string) => pinOwners.get(endpoint)?.id || (componentIds.has(endpoint) ? endpoint : null);
+  const connectedComponentIds = new Set(wires.flatMap((wire) => [componentForEndpoint(wire.from), componentForEndpoint(wire.to)].filter((id): id is string => !!id)));
+  const connectedComponents = components.filter((component) => connectedComponentIds.has(component.id));
 
   const graph = new dagre.graphlib.Graph({ multigraph: true }).setGraph({ rankdir: 'LR', nodesep: 32, ranksep: 84, marginx: 30, marginy: 30 }).setDefaultEdgeLabel(() => ({}));
-  graph.setNode(ARDUINO_ID, { width: NODE_WIDTH, height: NODE_HEIGHT });
-  components.forEach((component) => graph.setNode(component.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
+  connectedComponents.forEach((component) => graph.setNode(component.id, { width: NODE_WIDTH, height: NODE_HEIGHT }));
   wires.forEach((wire, index) => {
-    const from = pinOwners.get(wire.from)?.id || (isArduinoPin(wire.from) ? ARDUINO_ID : `pin:${wire.from}`);
-    const to = pinOwners.get(wire.to)?.id || (isArduinoPin(wire.to) ? ARDUINO_ID : `pin:${wire.to}`);
+    const fromComponent = componentForEndpoint(wire.from);
+    const toComponent = componentForEndpoint(wire.to);
+    const connectsArduinoToComponent = (isArduinoPin(wire.from) && !!toComponent) || (isArduinoPin(wire.to) && !!fromComponent);
+    const from = fromComponent || (isArduinoPin(wire.from) && connectsArduinoToComponent ? ARDUINO_ID : `pin:${wire.from}`);
+    const to = toComponent || (isArduinoPin(wire.to) && connectsArduinoToComponent ? ARDUINO_ID : `pin:${wire.to}`);
     if (!graph.hasNode(from)) graph.setNode(from, { width: 92, height: 42 });
     if (!graph.hasNode(to)) graph.setNode(to, { width: 92, height: 42 });
     graph.setEdge(from, to, { wire }, `wire-${index}`);
@@ -57,7 +63,7 @@ export function CircuitGraph({ circuit, faultComponents, confidence }: Props) {
   const graphWidth = Math.max(540, ...(nodes.map((node) => node.x + node.width / 2 + 30)));
   const graphHeight = Math.max(300, ...(nodes.map((node) => node.y + node.height / 2 + 30)));
 
-  if (!circuit) return (
+  if (!circuit || wires.length === 0) return (
     <div className="overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-2">
       <svg className="min-w-full" viewBox="0 0 540 300" role="img" aria-label="Waiting for circuit data">
         <defs>

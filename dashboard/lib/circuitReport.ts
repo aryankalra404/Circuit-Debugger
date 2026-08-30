@@ -18,6 +18,27 @@ function addWrappedText(pdf: jsPDF, text: string, x: number, y: number, maxWidth
   return y + lines.length * lineHeight;
 }
 
+function addConnectionRow(pdf: jsPDF, from: string, to: string, x: number, y: number, width: number) {
+  const arrowWidth = 12;
+  const columnWidth = (width - arrowWidth - 10) / 2;
+  pdf.setFont('courier', 'normal');
+  pdf.setFontSize(8.5);
+  const fromLines = pdf.splitTextToSize(from, columnWidth) as string[];
+  const toLines = pdf.splitTextToSize(to, columnWidth) as string[];
+  const lineCount = Math.max(fromLines.length, toLines.length);
+  const rowHeight = Math.max(8, lineCount * 4 + 4);
+  pdf.setFillColor(248, 250, 252);
+  pdf.setDrawColor(226, 232, 240);
+  pdf.roundedRect(x, y - 4, width, rowHeight, 1.5, 1.5, 'FD');
+  pdf.setTextColor(23, 32, 51);
+  pdf.text(fromLines, x + 3, y);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('->', x + columnWidth + 5, y);
+  pdf.setFont('courier', 'normal');
+  pdf.text(toLines, x + columnWidth + arrowWidth + 4, y);
+  return y + rowHeight + 2;
+}
+
 export async function downloadCircuitReport({ sessionId, intent, circuit, graphElement, faultHistory }: {
   sessionId: string;
   intent: string;
@@ -68,21 +89,29 @@ export async function downloadCircuitReport({ sessionId, intent, circuit, graphE
   pdf.setFontSize(11);
   pdf.text('Connections', margin, y);
   y += 5;
-  pdf.setFontSize(9);
   if (wires.length === 0) {
+    pdf.setFontSize(9);
     pdf.text('No wires connected.', margin, y);
     y += 6;
   } else {
     for (const wire of wires) {
-      if (y > 280) { pdf.addPage(); y = 18; }
       const from = pinOwner(components, wire.from);
       const to = pinOwner(components, wire.to);
-      y = addWrappedText(pdf, `${from.component}.${from.pin} → ${to.component}.${to.pin}`, margin, y, contentWidth) + 1;
+      const fromLabel = `${from.component}.${from.pin}`;
+      const toLabel = `${to.component}.${to.pin}`;
+      const estimatedRowHeight = Math.max(8, Math.max(pdf.splitTextToSize(fromLabel, (contentWidth - 22) / 2).length, pdf.splitTextToSize(toLabel, (contentWidth - 22) / 2).length) * 4 + 4) + 2;
+      if (y + estimatedRowHeight > 280) { pdf.addPage(); y = 18; }
+      y = addConnectionRow(pdf, fromLabel, toLabel, margin, y, contentWidth);
     }
   }
 
-  if (y > 255) { pdf.addPage(); y = 18; }
-  y += 5;
+  if (y > 270) { pdf.addPage(); y = 18; } else {
+    y += 3;
+    pdf.setDrawColor(203, 213, 225);
+    pdf.line(margin, y, margin + contentWidth, y);
+    y += 7;
+  }
+  pdf.setFont('helvetica', 'normal');
   pdf.setFontSize(11);
   pdf.text('Components', margin, y);
   y += 5;
