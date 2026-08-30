@@ -5,7 +5,8 @@ import tempfile
 
 import streamlit as st
 
-from diagnose import DEFAULT_BASELINE, DEFAULT_WEIGHTS, diagnose_circuit
+from diagnose import DEFAULT_BASELINE, diagnose_circuit
+from infer import DEFAULT_WEIGHTS
 
 
 def save_upload(uploaded_file) -> Path:

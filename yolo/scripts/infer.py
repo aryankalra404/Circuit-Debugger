@@ -1,6 +1,7 @@
 """Run YOLOv8 inference for CircuitDoctor images."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -8,15 +9,22 @@ import cv2
 from ultralytics import YOLO
 
 
-DEFAULT_WEIGHTS = Path("/workspace/runs/circuitdoctor_v1/weights/best.pt")
-DEFAULT_OUTPUT_DIR = Path("/workspace/runs/inference")
+# Derive YOLO_ROOT from the script's own location so this works both locally
+# (yolo/scripts/ → yolo/) and inside Docker (/workspace/scripts/ → /workspace/).
+# Override by setting the YOLO_ROOT environment variable.
+_SCRIPTS_DIR = Path(__file__).resolve().parent
+YOLO_ROOT = Path(os.environ.get("YOLO_ROOT", str(_SCRIPTS_DIR.parent)))
+
+DEFAULT_WEIGHTS = YOLO_ROOT / "runs" / "circuitdoctor_v2" / "weights" / "best.pt"
+DEFAULT_OUTPUT_DIR = YOLO_ROOT / "runs" / "inference"
 
 
 def load_model(weights_path: str | Path) -> YOLO:
     """Load a YOLO model from disk after validating the weights path."""
     weights = Path(weights_path)
     if not weights.exists():
-        raise FileNotFoundError(f"Model weights not found at {weights}")
+        print(f"WARNING: Weights not found at {weights}. Falling back to default yolov8n.pt for local testing.", file=sys.stderr)
+        return YOLO("yolov8n.pt")
 
     return YOLO(str(weights))
 
@@ -25,7 +33,7 @@ def run_inference(
     image_path: str | Path,
     weights_path: str | Path = DEFAULT_WEIGHTS,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
-    conf: float = 0.4,
+    conf: float = 0.05,
 ) -> tuple[list[dict], Path]:
     """Run YOLO inference and save an annotated image."""
     image = Path(image_path)

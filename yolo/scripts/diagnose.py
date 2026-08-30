@@ -6,12 +6,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from infer import DEFAULT_WEIGHTS, run_inference
+from infer import DEFAULT_WEIGHTS, YOLO_ROOT, run_inference
 
 
 DEFAULT_BASELINE = {"led": 3, "resistor": 3, "pir_sensor": 1}
-DEFAULT_BASELINE_PATH = Path("/workspace/baseline_config.json")
-DEFAULT_DIAGNOSIS_OUTPUT_DIR = Path("/workspace/runs/inference")
+DEFAULT_BASELINE_PATH = YOLO_ROOT / "baseline_config.json"
+DEFAULT_DIAGNOSIS_OUTPUT_DIR = YOLO_ROOT / "runs" / "inference"
 NO_FAULTS_MESSAGE = "No faults detected — circuit appears correctly assembled."
 
 
@@ -123,7 +123,7 @@ def diagnose_circuit(
         "counts": counts,
         "summary": format_detection_summary(counts),
         "diagnosis_message": "\n".join(messages),
-        "has_faults": messages != [NO_FAULTS_MESSAGE],
+        "has_faults": not (len(messages) == 1 and messages[0] == NO_FAULTS_MESSAGE),
         "annotated_image_path": annotated_path,
     }
 

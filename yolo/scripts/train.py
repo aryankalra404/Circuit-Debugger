@@ -22,9 +22,15 @@ def train_model(data_yaml: Path, epochs: int, batch: int, imgsz: int) -> None:
         imgsz=imgsz,
         batch=batch,
         device=0,
-        patience=20,
+        patience=40,
         project="/workspace/runs",
-        name="circuitdoctor_v1",
+        name="circuitdoctor_v2",
+        degrees=15.0,
+        hsv_h=0.015,
+        hsv_s=0.4,
+        hsv_v=0.4,
+        scale=0.1,
+        fliplr=0.5,
     )
 
 
