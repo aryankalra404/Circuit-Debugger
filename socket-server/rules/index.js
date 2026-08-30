@@ -1,8 +1,9 @@
 const ledReversed = require('./ledReversed');
 const missingGroundPath = require('./missingGroundPath');
+const missingSeriesResistor = require('./missingSeriesResistor');
 const resistorSanity = require('./resistorSanity');
 
-const rules = [ledReversed, missingGroundPath, resistorSanity];
+const rules = [ledReversed, missingGroundPath, missingSeriesResistor, resistorSanity];
 
 function diagnoseCircuit(circuit) {
   if (!circuit || typeof circuit !== 'object') return { ok: false, message: 'Circuit data is missing or invalid.' };
@@ -10,7 +11,7 @@ function diagnoseCircuit(circuit) {
     const message = rule(circuit);
     if (message) return { ok: false, message };
   }
-  return { ok: true, message: 'Circuit looks good: LED path is complete and polarity is correct.' };
+  return { ok: true, message: 'Circuit looks good: LED path is complete, protected, and polarity is correct.' };
 }
 
 module.exports = { diagnoseCircuit };

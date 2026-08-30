@@ -1,5 +1,6 @@
 const { retrieve } = require('../rag/retrieve');
 const { getClient, MODEL } = require('../reasoning/openaiCircuitReasoner');
+const OpenAI = require('openai');
 
 const MAX_HISTORY_MESSAGES = 10;
 
@@ -21,6 +22,56 @@ function fallbackResponse(session) {
   const faultComponent = session.latestResult?.suspectedComponent;
   if (faultComponent) return `I can see a current issue involving ${faultComponent}, but I could not retrieve enough datasheet evidence to add a grounded explanation. Please check the displayed diagnosis and wiring.`;
   return 'I do not have enough grounded component reference information to answer that confidently. Please ask about a connected LED, resistor, or PIR component.';
+}
+
+function getRekaClient() {
+  if (!process.env.REKA_API_KEY) throw new Error('REKA_API_KEY is not configured.');
+  return new OpenAI({ apiKey: process.env.REKA_API_KEY, baseURL: 'https://api.reka.ai/v1', timeout: 12000, maxRetries: 0 });
+}
+
+function isAudioDataUrl(value) {
+  return typeof value === 'string' && /^data:audio\/[a-z0-9.+-]+;base64,/i.test(value) && value.length <= 2 * 1024 * 1024;
+}
+
+async function answerVoiceMessage({ session, audioUrl, retrieveChunks = retrieve, client = getRekaClient() }) {
+  if (!isAudioDataUrl(audioUrl)) throw new Error('Voice recording must be an audio data URL smaller than 2 MB.');
+  const circuit = session.circuit || { components: [], wires: [] };
+  const circuitSummary = summarizeCircuit(circuit);
+  const diagnosis = session.latestResult || null;
+  let snippets = [];
+  try {
+    snippets = await retrieveChunks(buildRetrievalQuery('explain the active circuit fault', circuit), 2);
+  } catch (error) {
+    console.warn(`[voice] RAG retrieval failed: ${error.message}`);
+  }
+  const evidence = snippets.map(({ source, heading, text }) => ({ source, heading, text }));
+  const response = await client.chat.completions.create({
+    model: process.env.REKA_MODEL || 'reka-flash-3',
+    temperature: 0.2,
+    max_tokens: 220,
+    messages: [
+      {
+        role: 'system',
+        content: `You are CircuitDoctor's voice assistant. Transcribe the student's recorded question, then answer it concisely using only this live circuit summary, diagnosis, and datasheet excerpts. Do not invent electrical facts. If the audio is unclear, say so in both fields. Return exactly one JSON object with string fields transcript and answer; do not wrap it in Markdown.\n\nLive circuit summary:\n${JSON.stringify(circuitSummary)}\n\nLatest diagnosis:\n${JSON.stringify(diagnosis)}\n\nRetrieved datasheet excerpts:\n${JSON.stringify(evidence)}`
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'audio_url', audio_url: { url: audioUrl } },
+          { type: 'text', text: 'Answer my recorded question about the current circuit.' }
+        ]
+      }
+    ]
+  });
+  const content = response.choices[0]?.message?.content?.trim();
+  if (!content) throw new Error('Reka returned no voice response.');
+  try {
+    const parsed = JSON.parse(content);
+    if (typeof parsed?.transcript === 'string' && typeof parsed?.answer === 'string') return parsed;
+  } catch {
+    // Keep the voice interaction useful if the model does not follow the JSON instruction.
+  }
+  return { transcript: 'I could not transcribe that recording.', answer: content };
 }
 
 async function answerChatMessage({ session, message, retrieveChunks = retrieve, client = getClient() }) {
@@ -63,4 +114,4 @@ function appendChatTurn(session, role, content) {
   session.chatHistory = session.chatHistory.slice(-MAX_HISTORY_MESSAGES);
 }
 
-module.exports = { answerChatMessage, appendChatTurn, buildRetrievalQuery, summarizeCircuit, fallbackResponse, MAX_HISTORY_MESSAGES };
+module.exports = { answerChatMessage, answerVoiceMessage, appendChatTurn, buildRetrievalQuery, summarizeCircuit, fallbackResponse, MAX_HISTORY_MESSAGES };

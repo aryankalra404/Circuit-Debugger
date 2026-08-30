@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 // Kept as a deterministic offline fallback if the LLM is unavailable.
 const { diagnoseCircuit } = require('./rules');
 const { diagnoseAndVerify } = require('./reasoning/diagnoseAndVerify');
-const { answerChatMessage, appendChatTurn, fallbackResponse } = require('./server/chat');
+const { answerChatMessage, answerVoiceMessage, appendChatTurn, fallbackResponse } = require('./server/chat');
 
 const PORT = Number(process.env.PORT || 3001);
 const REASONING_DEBOUNCE_MS = 1200;
@@ -41,7 +41,8 @@ const httpServer = http.createServer((request, response) => {
 
 const io = new Server(httpServer, {
   cors: { origin: '*' },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 2 * 1024 * 1024
 });
 
 async function runReasoningForSession(sessionId, revision) {
@@ -191,6 +192,30 @@ io.on('connection', (socket) => {
       appendChatTurn(session, 'user', message);
       appendChatTurn(session, 'assistant', response);
       socket.emit('chat:response', { ok: true, message: response });
+    }
+  });
+
+  socket.on('chat:voice', async (payload = {}) => {
+    const sessionId = cleanSessionId(payload.sessionId);
+    const audioUrl = typeof payload.audioUrl === 'string' ? payload.audioUrl : '';
+    const session = sessionId ? sessions.get(sessionId) : null;
+    if (!session?.circuit && !session?.latestResult) {
+      socket.emit('chat:voice-response', { ok: false, message: 'Build or diagnose a circuit first so I have live context to reference.' });
+      return;
+    }
+
+    console.log(`[voice] ${sessionId} (${socket.id}): recording received`);
+    try {
+      const response = await answerVoiceMessage({ session, audioUrl });
+      appendChatTurn(session, 'user', response.transcript);
+      appendChatTurn(session, 'assistant', response.answer);
+      socket.emit('chat:voice-response', { ok: true, transcript: response.transcript, message: response.answer });
+    } catch (error) {
+      console.warn(`[voice] ${sessionId}: failed; returning grounded fallback: ${error.message}`);
+      const response = fallbackResponse(session);
+      appendChatTurn(session, 'user', 'Voice question');
+      appendChatTurn(session, 'assistant', response);
+      socket.emit('chat:voice-response', { ok: false, transcript: 'I could not transcribe that recording.', message: response });
     }
   });
 

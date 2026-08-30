@@ -182,4 +182,4 @@ resistors are added, their Inspector `pinId` values must be globally unique
 (for example `LED1_L1`, `LED2_L1`, `RES1_R1`) because the current Unity bridge
 serializes only raw pin-ID strings.
 
-Current checks cover reversed LED polarity, a missing LED-to-GND path, a missing power path, and basic resistor values when a future `value` field is supplied. A resistor is optional for the current direct-LED AR demo. Session state stays in memory and is intentionally reset whenever the server restarts.
+Current checks cover reversed LED polarity, a missing LED-to-GND path, a missing power path, an LED power path that bypasses its series current-limiting resistor, and basic resistor values when a `value` field is supplied. Session state stays in memory and is intentionally reset whenever the server restarts.

@@ -61,8 +61,6 @@ module.exports = function missingGroundPath(circuit) {
     if (!fromPower.has(anode)) {
       return `LED ${led.id} has no power-side path to its anode. Check the resistor and power-pin wiring.`;
     }
-    // A resistor is optional for this AR demo. When a future value field is
-    // sent, resistorSanity.js validates it without changing this topology rule.
   }
   return null;
 };

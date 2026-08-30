@@ -58,4 +58,4 @@ function powerNodes(graph) {
   return [...graph.keys()].filter(isPowerNode);
 }
 
-module.exports = { buildGraph, isGround, powerNodes, reachable, terminalNode };
+module.exports = { buildGraph, isGround, isPowerNode, powerNodes, reachable, terminalNode };
