@@ -58,6 +58,15 @@ public class WireManager : MonoBehaviour
         }
     }
 
+    /// <summary>Hook this directly to a UI button event.</summary>
+    public void SpawnJumperWire()
+    {
+        Color[] wireColors = { Color.red, Color.black, Color.blue, Color.yellow, Color.green };
+        int index = activeWires.Count;
+        Vector3 position = spawnCenter + new Vector3(0, 0, index * spawnOffsetSpacing);
+        SpawnWireAt(position, wireColors[index % wireColors.Length]);
+    }
+
     public JumperWire SpawnWireAt(Vector3 position, Color color)
     {
         if (jumperWirePrefab == null) return null;
@@ -119,6 +128,5 @@ public class WireManager : MonoBehaviour
         }
     }
 }
-
 
 

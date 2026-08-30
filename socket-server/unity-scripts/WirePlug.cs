@@ -81,7 +81,7 @@ public class WirePlug : MonoBehaviour
     {
         isGrabbed = false;
 
-        if (candidatePin != null && !candidatePin.isOccupied)
+        if (candidatePin != null && candidatePin.CanAcceptPlug(this))
         {
             PlugInto(candidatePin);
             ClearCandidate();
@@ -117,7 +117,7 @@ public class WirePlug : MonoBehaviour
 
         foreach (var pin in allPins)
         {
-            if (pin.isOccupied && pin.occupyingPlug != this) continue;
+            if (!pin.CanAcceptPlug(this)) continue;
 
             float dist = Vector3.Distance(searchPos, pin.transform.position);
             if (dist < bestDist)
@@ -162,7 +162,7 @@ public class WirePlug : MonoBehaviour
         if (pin == null) return;
 
         currentPin = pin;
-        pin.occupyingPlug = this;
+        pin.AddPlug(this);
         pin.SetConnected(true);
 
         transform.position = pin.transform.position;
@@ -181,7 +181,7 @@ public class WirePlug : MonoBehaviour
         if (currentPin == null) return;
 
         PinPoint prevPin = currentPin;
-        currentPin.occupyingPlug = null;
+        currentPin.RemovePlug(this);
         currentPin.SetConnected(false);
         currentPin = null;
 

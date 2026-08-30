@@ -36,7 +36,6 @@ public class QuestCircuitBridge : MonoBehaviour
         public PinPoint b;
     }
 
-    [Serializable]
     public class PirDefinition
     {
         [Tooltip("Must match the server component ID, e.g. pir-1.")]
@@ -176,6 +175,46 @@ public class QuestCircuitBridge : MonoBehaviour
     {
         JArray components = new JArray();
 
+        // Components created from the UI are discovered at runtime. This avoids
+        // a manually maintained Inspector list and lets every spawned prefab
+        // receive its own ID and terminal IDs.
+        CircuitComponent[] runtimeComponents = UnityEngine.Object.FindObjectsByType<CircuitComponent>(FindObjectsSortMode.None);
+        if (runtimeComponents.Length > 0)
+        {
+            foreach (CircuitComponent component in runtimeComponents)
+            {
+                if (component == null || !component.IsConfigured()) continue;
+                switch (component.Type)
+                {
+                    case CircuitComponent.ComponentType.Led:
+                        components.Add(new JObject { ["id"] = component.Id, ["type"] = "led", ["anode"] = component.Anode.pinId, ["cathode"] = component.Cathode.pinId });
+                        break;
+                    case CircuitComponent.ComponentType.Resistor:
+                        components.Add(new JObject { ["id"] = component.Id, ["type"] = "resistor", ["a"] = component.TerminalA.pinId, ["b"] = component.TerminalB.pinId });
+                        break;
+                    case CircuitComponent.ComponentType.Pir:
+                        components.Add(new JObject { ["id"] = component.Id, ["type"] = "pir", ["vcc"] = component.Vcc.pinId, ["signal"] = component.Signal.pinId, ["gnd"] = component.Gnd.pinId });
+                        break;
+                }
+            }
+        }
+        else
+        {
+            AddInspectorConfiguredComponents(components);
+        }
+
+        // Existing CircuitGraph wire serialization is deliberately unchanged.
+        JArray wires = new JArray();
+        foreach (Connection connection in circuitGraph.connections)
+        {
+            if (connection.pinA == null || connection.pinB == null) continue;
+            wires.Add(new JObject { ["from"] = connection.pinA.pinId, ["to"] = connection.pinB.pinId });
+        }
+        return new JObject { ["components"] = components, ["wires"] = wires };
+    }
+
+    private void AddInspectorConfiguredComponents(JArray components)
+    {
         foreach (LedDefinition led in leds)
         {
             if (!HasPins(led != null ? led.id : null, led != null ? led.anode : null, led != null ? led.cathode : null)) continue;
@@ -213,14 +252,6 @@ public class QuestCircuitBridge : MonoBehaviour
             });
         }
 
-        // Existing CircuitGraph wire serialization is deliberately unchanged.
-        JArray wires = new JArray();
-        foreach (Connection connection in circuitGraph.connections)
-        {
-            if (connection.pinA == null || connection.pinB == null) continue;
-            wires.Add(new JObject { ["from"] = connection.pinA.pinId, ["to"] = connection.pinB.pinId });
-        }
-        return new JObject { ["components"] = components, ["wires"] = wires };
     }
 
     private static bool HasPins(string componentId, params PinPoint[] pins)
@@ -295,6 +326,17 @@ public class QuestCircuitBridge : MonoBehaviour
 
     private IEnumerable<PinPoint> GetPinsForComponent(string componentId)
     {
+        foreach (CircuitComponent component in UnityEngine.Object.FindObjectsByType<CircuitComponent>(FindObjectsSortMode.None))
+        {
+            if (component != null && component.Id == componentId)
+            {
+                foreach (PinPoint pin in component.GetPins())
+                {
+                    if (pin != null) yield return pin;
+                }
+                yield break;
+            }
+        }
         foreach (LedDefinition led in leds)
         {
             if (led != null && led.id == componentId)

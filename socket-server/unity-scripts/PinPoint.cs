@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public enum PinType { Signal, Power, Ground }
 
@@ -22,10 +23,47 @@ public class PinPoint : MonoBehaviour
 
     private bool isHighlighted;
     private bool isFaultHighlighted;
+    private bool hasCircuitConnection;
+    private readonly HashSet<WirePlug> occupyingPlugs = new HashSet<WirePlug>();
+
+    /// <summary>
+    /// Ground and supply rails are shared electrical nodes: an LED and a PIR
+    /// must be able to use the same GND/5V point at the same time. Signal pins
+    /// remain single-plug to prevent accidental short circuits in the AR build.
+    /// </summary>
+    public bool AllowsSharedConnections()
+    {
+        return pinType == PinType.Ground || pinType == PinType.Power;
+    }
+
+    public bool CanAcceptPlug(WirePlug plug)
+    {
+        return AllowsSharedConnections()
+            || occupyingPlugs.Contains(plug)
+            || (occupyingPlugs.Count == 0 && !isOccupied);
+    }
 
     void Awake()
     {
+        if (occupyingPlug != null) occupyingPlugs.Add(occupyingPlug);
+        RefreshOccupancy();
         RefreshVisual();
+    }
+
+    public void AddPlug(WirePlug plug)
+    {
+        if (plug == null) return;
+        occupyingPlugs.Add(plug);
+        occupyingPlug = plug; // Kept for Inspector/backwards compatibility.
+        RefreshOccupancy();
+    }
+
+    public void RemovePlug(WirePlug plug)
+    {
+        if (plug == null) return;
+        occupyingPlugs.Remove(plug);
+        occupyingPlug = occupyingPlugs.Count > 0 ? FirstPlug() : null;
+        RefreshOccupancy();
     }
 
     public void SetHighlighted(bool on)
@@ -42,7 +80,19 @@ public class PinPoint : MonoBehaviour
 
     public void SetConnected(bool connected)
     {
-        isOccupied = connected;
+        hasCircuitConnection = connected;
+        RefreshOccupancy();
+    }
+
+    private WirePlug FirstPlug()
+    {
+        foreach (WirePlug plug in occupyingPlugs) return plug;
+        return null;
+    }
+
+    private void RefreshOccupancy()
+    {
+        isOccupied = hasCircuitConnection || occupyingPlugs.Count > 0;
         RefreshVisual();
     }
 
