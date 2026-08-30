@@ -23,10 +23,3 @@ button, input { font: inherit; }
 .graph-node { transition: transform 420ms ease; }
 
 @keyframes graph-draw-in { to { stroke-dashoffset: 0; } }
-
-@keyframes status-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.92); }
-}
-
-.status-pulse { animation: status-pulse 2s ease-in-out infinite; }

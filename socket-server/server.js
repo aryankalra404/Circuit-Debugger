@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 // Kept as a deterministic offline fallback if the LLM is unavailable.
 const { diagnoseCircuit } = require('./rules');
 const { diagnoseAndVerify } = require('./reasoning/diagnoseAndVerify');
+const { answerChatMessage, appendChatTurn, fallbackResponse } = require('./server/chat');
 
 const PORT = Number(process.env.PORT || 3001);
 const REASONING_DEBOUNCE_MS = 1200;
@@ -80,6 +81,7 @@ async function runReasoningForSession(sessionId, revision) {
     console.log(`[result] ${sessionId}: skipped stale revision ${revision}`);
     return;
   }
+  sessions.get(sessionId).latestResult = result;
   console.log(`[result] ${sessionId}: ${result.ok ? 'OK' : 'FAULT'} (${result.confidence || 'not-applicable'}) — ${result.message}`);
 
   io.to(sessionId).emit('circuit:result', result);
@@ -109,7 +111,7 @@ io.on('connection', (socket) => {
     }
     socket.data.sessionId = sessionId;
     socket.join(sessionId);
-    if (!sessions.has(sessionId)) sessions.set(sessionId, { circuit: null, updatedAt: null });
+    if (!sessions.has(sessionId)) sessions.set(sessionId, { circuit: null, updatedAt: null, intent: '', latestResult: null, chatHistory: [] });
     console.log(`[session] ${socket.id} joined ${sessionId}`);
   });
 
@@ -129,7 +131,16 @@ io.on('connection', (socket) => {
 
     const previous = sessions.get(sessionId);
     const revision = (previous?.revision || 0) + 1;
-    sessions.set(sessionId, { circuit: payload.circuit, updatedAt: new Date().toISOString(), revision, intent: previous?.intent || '' });
+    sessions.set(sessionId, {
+      ...previous,
+      circuit: payload.circuit,
+      updatedAt: new Date().toISOString(),
+      revision,
+      intent: previous?.intent || '',
+      // A new topology invalidates an older diagnosis until its debounce run completes.
+      latestResult: null,
+      chatHistory: previous?.chatHistory || []
+    });
     const componentCount = Array.isArray(payload.circuit.components) ? payload.circuit.components.length : 0;
     const wireCount = Array.isArray(payload.circuit.wires) ? payload.circuit.wires.length : 0;
     console.log(`[circuit] ${sessionId} (${socket.id}): ${componentCount} components, ${wireCount} wires`);
@@ -148,9 +159,39 @@ io.on('connection', (socket) => {
     if (session) {
       session.intent = intent;
     } else {
-      sessions.set(sessionId, { circuit: null, updatedAt: null, intent });
+      sessions.set(sessionId, { circuit: null, updatedAt: null, intent, latestResult: null, chatHistory: [] });
     }
     console.log(`[intent] ${sessionId} (${socket.id}): ${intent ? `"${intent}"` : '(cleared)'}`);
+  });
+
+  socket.on('chat:message', async (payload = {}) => {
+    const sessionId = cleanSessionId(payload.sessionId);
+    const message = typeof payload.message === 'string' ? payload.message.trim() : '';
+    if (!sessionId || !message) {
+      socket.emit('chat:response', { ok: false, message: 'Please enter a question for CircuitDoctor.' });
+      return;
+    }
+
+    const session = sessions.get(sessionId);
+    if (!session?.circuit && !session?.latestResult) {
+      socket.emit('chat:response', { ok: false, message: 'Build or diagnose a circuit first so I have live context to reference.' });
+      return;
+    }
+
+    console.log(`[chat] ${sessionId} (${socket.id}): message received`);
+    try {
+      const response = await answerChatMessage({ session, message });
+      appendChatTurn(session, 'user', message);
+      appendChatTurn(session, 'assistant', response);
+      socket.emit('chat:response', { ok: true, message: response });
+      console.log(`[chat] ${sessionId} (${socket.id}): response sent`);
+    } catch (error) {
+      console.warn(`[chat] ${sessionId}: failed; returning grounded fallback: ${error.message}`);
+      const response = fallbackResponse(session);
+      appendChatTurn(session, 'user', message);
+      appendChatTurn(session, 'assistant', response);
+      socket.emit('chat:response', { ok: true, message: response });
+    }
   });
 
   socket.on('disconnect', (reason) => console.log(`[socket] disconnected ${socket.id} (${reason})`));

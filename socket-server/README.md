@@ -126,11 +126,26 @@ Client → server:
 
 - `session:join` — `{ sessionId }`
 - `circuit:update` — `{ sessionId, circuit: { components, wires } }`
+- `circuit:intent` — `{ sessionId, intent }`
+- `chat:message` — `{ sessionId, message }`
 
 Server → all clients in that session:
 
 - `circuit:result` — `{ ok, message, confidence, groundedOn, suspectedComponent, suspectedComponents, faults }`
 - `simulation:led` — `{ componentId, on }`
+- `chat:response` — `{ ok, message }` (returned only to the requesting dashboard socket)
+
+## CircuitDoctor chat
+
+The dashboard's **Ask CircuitDoctor** panel is grounded in the live session on
+every message. The server supplies the current component/wire graph, the most
+recent completed diagnosis (including affected component IDs and confidence),
+and the two most relevant local datasheet snippets retrieved for the question
+plus component names. It keeps only the last 10 user/assistant turns per
+in-memory session; nothing is persisted to disk. If retrieval has no evidence
+and there is no active fault, it responds conservatively rather than inventing
+electrical facts. Run `npm run test:chat` to verify that a chat response for an
+active fault is grounded on and references the affected component ID.
 
 ## LLM reasoning and fallback
 

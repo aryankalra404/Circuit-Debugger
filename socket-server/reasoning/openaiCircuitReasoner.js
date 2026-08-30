@@ -166,4 +166,4 @@ function toCircuitResult(diagnosis) {
   return { ok: false, message: `${prefix}${diagnosis.suspectedIssue || diagnosis.reasoning}` };
 }
 
-module.exports = { reasonAboutCircuit, toCircuitResult, prepareCircuitForReasoning, NOTHING_WIRED_YET };
+module.exports = { reasonAboutCircuit, toCircuitResult, prepareCircuitForReasoning, NOTHING_WIRED_YET, getClient, MODEL, TIMEOUT_MS };

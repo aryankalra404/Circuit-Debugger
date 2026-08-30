@@ -13,7 +13,8 @@
     "rag:index": "node scripts/buildIndex.js",
     "test:rag": "node test/rag.js",
     "test:pipeline": "node test/pipeline.js",
-    "test:multi-fault": "node test/multiFault.js"
+    "test:multi-fault": "node test/multiFault.js",
+    "test:chat": "node test/chat.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
